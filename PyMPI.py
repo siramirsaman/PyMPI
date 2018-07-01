@@ -54,24 +54,24 @@ class G:
 
     def iterate(self, epsilon, maxit):
         for k in range(0, maxit):
-            G1.local_sum[0]=0.0
-            for i in range(G1.comm.Get_rank() * G1.div_size, (G1.comm.Get_rank() + 1) * G1.div_size):
-                y_new = G1.l.b[i]
-                for j in range(0, G1.l.N):
+            self.local_sum[0]=0.0
+            for i in range(self.comm.Get_rank() * self.div_size, (self.comm.Get_rank() + 1) * self.div_size):
+                y_new = self.l.b[i]
+                for j in range(0, self.l.N):
                     if i != j:
-                      y_new -= G1.l.A[i,j] * G1.l.x[j]
+                      y_new -= self.l.A[i,j] * self.l.x[j]
 
-                y_new /= G1.l.A[i,i]
-                dx = G1.y[i-G1.comm.Get_rank()*G1.div_size]-y_new
-                G1.y[i-G1.comm.Get_rank()*G1.div_size] = y_new
+                y_new /= self.l.A[i,i]
+                dx = self.y[i-self.comm.Get_rank()*self.div_size]-y_new
+                self.y[i-self.comm.Get_rank()*self.div_size] = y_new
 
-                comm.Allgatherv([G1.y,G1.div_size,MPI.DOUBLE], [G1.l.x,G1.div_size,MPI.DOUBLE])
+                comm.Allgatherv([self.y,self.div_size,MPI.DOUBLE], [self.l.x,self.div_size,MPI.DOUBLE])
 
-                G1.local_sum[0] += abs(dx)
+                self.local_sum[0] += abs(dx)
 
-            comm.Allreduce([G1.local_sum, MPI.DOUBLE], [G1.global_sum, MPI.DOUBLE], op=MPI.SUM)
+            comm.Allreduce([self.local_sum, MPI.DOUBLE], [self.global_sum, MPI.DOUBLE], op=MPI.SUM)
 
-            if G1.global_sum[0] <= epsilon:
+            if self.global_sum[0] <= epsilon:
                 break
 
 
