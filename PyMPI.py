@@ -6,74 +6,87 @@ Python MPI A.x = b
 from mpi4py import MPI
 import numpy as np
 
+class linear:
+    def __init__ (self, comm, N):
+        self.N = N
+        self.A = np.empty((N,N), dtype=np.double)
+        self.b = np.ones(N, dtype=np.double) * 2 * N
+        self.x = np.zeros(N, dtype=np.double)
 
-comm = MPI.COMM_WORLD
+        self.initialize_mpi(comm)
 
-size = comm.Get_size()
-rank = comm.Get_rank()
-name = MPI.Get_processor_name()
-
-N = 10
-
-A = np.empty((N,N), dtype=np.double)
-b = np.ones(N, dtype=np.double) * 2 * N
-x = np.zeros(N, dtype=np.double)
-
-if rank == 0:
-    it = np.nditer(A, flags=['multi_index'], op_flags=['writeonly'])
-    while not it.finished:
-      if it.multi_index[0]==it.multi_index[1]:
-          it[0] = N + 1
-      else:
-          it[0] = 1
-      it.iternext()
-
-    comm.Send(A, dest=1,   tag=13)
-
-elif rank == 1:
-    comm.Recv(A, source=0, tag=13)
+    def initialize_mpi(self, comm):
+        if comm.Get_rank() == 0:
+            it = np.nditer(self.A, flags=['multi_index'], op_flags=['writeonly'])
+            while not it.finished:
+              if it.multi_index[0]==it.multi_index[1]:
+                  it[0] = self.N + 1
+              else:
+                  it[0] = 1
+              it.iternext()
+            comm.Send(self.A, dest=1,   tag=13)
+        else:
+            comm.Recv(self.A, source=0, tag=13)
 
 
-epsilon     = 1e-3
-maxit       = 2 * N * N
-div_size    = int(N/size)
-global_sum  = np.ones(1) * 100
-local_sum   = np.zeros(1)
+class G:
+    def __init__ (self, comm, N):
+        self.comm = comm
+        self.l = linear(comm, N)
+        self.div_size    = int(self.l.N/self.comm.Get_size())
+        self.global_sum  = np.ones(1) * 100
+        self.local_sum   = np.zeros(1)
 
-displs      = np.empty(size, dtype=np.double)
-recv_counts = np.empty(size, dtype=np.double)
-y           = np.empty(div_size, dtype=np.double)
+        self.displs      = np.empty(self.comm.Get_size(), dtype=np.double)
+        self.recv_counts = np.empty(self.comm.Get_size(), dtype=np.double)
+        self.y           = np.empty(self.div_size, dtype=np.double)
+
+        self.initialize()
 
 
-for i in range(0, size):
-    displs[i]=i*div_size
-    recv_counts[i]=1
+    def initialize(self):
+        for i in range(0, self.comm.Get_size()):
+            self.displs[i]=i*self.div_size
+            self.recv_counts[i]=1
 
-for i in range(rank * div_size, (rank + 1) * div_size):
-    y[(i-rank*div_size)] = x[i]
+        for i in range(self.comm.Get_rank() * self.div_size, (self.comm.Get_rank() + 1) * self.div_size):
+            self.y[(i-self.comm.Get_rank()*self.div_size)] = self.l.x[i]
 
-for k in range(0, maxit):
-    local_sum[0]=0.0
-    for i in range(rank * div_size, (rank + 1) * div_size):
-        y_new = b[i]
-        for j in range(0, N):
-            if i != j:
-              y_new -= A[i,j] * x[j]
+    def iterate(self, epsilon, maxit):
+        for k in range(0, maxit):
+            G1.local_sum[0]=0.0
+            for i in range(G1.comm.Get_rank() * G1.div_size, (G1.comm.Get_rank() + 1) * G1.div_size):
+                y_new = G1.l.b[i]
+                for j in range(0, G1.l.N):
+                    if i != j:
+                      y_new -= G1.l.A[i,j] * G1.l.x[j]
 
-        y_new /= A[i,i]
-        dx = y[i-rank*div_size]-y_new
-        y[i-rank*div_size] = y_new
+                y_new /= G1.l.A[i,i]
+                dx = G1.y[i-G1.comm.Get_rank()*G1.div_size]-y_new
+                G1.y[i-G1.comm.Get_rank()*G1.div_size] = y_new
 
-        comm.Allgatherv([y,div_size,MPI.DOUBLE], [x,div_size,MPI.DOUBLE])
+                comm.Allgatherv([G1.y,G1.div_size,MPI.DOUBLE], [G1.l.x,G1.div_size,MPI.DOUBLE])
 
-        local_sum[0] += abs(dx)
+                G1.local_sum[0] += abs(dx)
 
-    comm.Allreduce([local_sum, MPI.DOUBLE], [global_sum, MPI.DOUBLE], op=MPI.SUM)
+            comm.Allreduce([G1.local_sum, MPI.DOUBLE], [G1.global_sum, MPI.DOUBLE], op=MPI.SUM)
 
-    if global_sum[0] <= epsilon:
-        break
+            if G1.global_sum[0] <= epsilon:
+                break
 
-if rank==0:
-    print('residual %f reached after %d iterations\n' % (global_sum[0], k))
-    print('A . x = ', np.dot(A,x))
-    print("b = ", b)
+
+if __name__ == "__main__":
+    N = 10
+    epsilon     = 1e-3
+    maxit       = 2 * N**2
+
+    comm = MPI.COMM_WORLD
+
+    G1 = G(comm, 10)
+
+    G1.iterate(epsilon, maxit)
+
+    if G1.comm.Get_rank()==0:
+        print('residual %f\n' % (G1.global_sum[0]))
+        print('A . x = ', np.dot(G1.l.A,G1.l.x))
+        print("b = ", G1.l.b)
