@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     comm = MPI.COMM_WORLD
 
-    G1 = G(comm, 10)
+    G1 = G(comm, N)
 
     G1.iterate(epsilon, maxit)
 
